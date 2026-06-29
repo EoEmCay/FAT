@@ -12,32 +12,39 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """Bạn là SEO expert chuyên tối ưu bài đăng cho Facebook algorithm.
 Luôn trả về JSON hợp lệ, không có text ngoài JSON."""
 
-TASK_PROMPT = """Tối ưu các bài viết Facebook sau để đạt reach tối đa:
+TASK_PROMPT = """Tối ưu các bài viết Facebook dạng INFOGRAPHIC STRUCTURED sau:
 
 {posts}
 
-Với MỖI bài viết, thực hiện:
-1. HASHTAGS: Chọn 7-10 hashtag tối ưu gồm:
-   - 70% trending: #AI #MachineLearning #Technology
-   - 20% niche: #LLM #NeuralNetwork #DeepLearning
-   - 10% local: #LapTrinhVietNam #AIVietNam
-2. EMOJI: Đặt emoji chiến lược (tối đa 7 cái):
-   - 🔥 trước trending
-   - 💡 trước insight
-   - 📊 trước số liệu
-   - ⚡ trước benefit
-3. FORMAT: Chia đoạn ngắn (2-3 câu/đoạn), dễ đọc trên mobile
-4. BEST TIME: Xác định giờ đăng tốt nhất (12:00 PM hoặc 7:00 PM)
+Với MỖI bài, ghép nội dung hoàn chỉnh theo format:
+
+[HEADLINE]
+[BLOCK 01] icon + title
+• bullet 1
+• bullet 2
+• bullet 3
+➤ metric
+
+[BLOCK 02] icon + title
+...
+
+[SUMMARY]
+[CTA]
+
+Sau đó tối ưu:
+1. HASHTAGS: 7-10 hashtag gồm trending + niche + local Vietnamese
+2. BEST TIME: giờ đăng tốt nhất cho fanpage công nghệ Việt Nam
+3. ESTIMATED REACH: ước tính reach dựa trên chủ đề
 
 Trả về JSON array:
 [
   {{
     "article_url": "url nguồn",
-    "optimized_content": "Toàn bộ nội dung bài đã format đẹp",
-    "hashtags_optimized": ["#AI", "#MachineLearning"],
-    "best_posting_time": "12:00 PM",
-    "estimated_reach": 20000,
-    "readability_score": 70
+    "optimized_content": "Toàn bộ nội dung bài đã format — headline + blocks + summary + cta",
+    "hashtags_optimized": ["#AI", "#TríTuệNhânTạo", "#GenZYêuCôngNghệ"],
+    "best_posting_time": "17:00",
+    "estimated_reach": 25000,
+    "readability_score": 85
   }}
 ]
 
