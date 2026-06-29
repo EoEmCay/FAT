@@ -106,9 +106,20 @@ def review_panel():
             col_text, col_img = st.columns([3, 2])
 
             with col_text:
-                st.markdown("**📝 Nội dung bài:**")
-                st.text_area("", value=post.get("content", ""), height=350,
+                st.markdown("**📝 Nội dung sẽ đăng lên Facebook:**")
+                st.text_area("", value=post.get("content", ""), height=200,
                              key=f"content_{q_num}", disabled=True)
+
+                # Xem toàn bộ blocks (nếu drip mode)
+                if post.get("drip_eligible") and post.get("blocks"):
+                    with st.expander("📖 Xem toàn bộ nội dung (sẽ drip vào comments)"):
+                        for i, block in enumerate(post["blocks"]):
+                            st.markdown(f"**{i+1}. {block.get('icon','')} {block.get('title','')}**")
+                            for b in block.get("bullets", []):
+                                st.markdown(f"- {b}")
+                            if block.get("metric"):
+                                st.success(block["metric"])
+                            st.markdown("")
 
             with col_img:
                 # Hiện ảnh AI tìm được

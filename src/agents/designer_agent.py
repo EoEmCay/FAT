@@ -27,7 +27,7 @@ def _save_image(image_url: str, query: str, source: str) -> str | None:
         filename = f"{ts}_{source}_{slug}.jpg"
         filepath = os.path.join(AIIMG_DIR, filename)
 
-        resp = requests.get(image_url, timeout=15, stream=True)
+        resp = requests.get(image_url, timeout=30, stream=True)
         if resp.status_code == 200:
             with open(filepath, "wb") as f:
                 for chunk in resp.iter_content(8192):
@@ -37,6 +37,39 @@ def _save_image(image_url: str, query: str, source: str) -> str | None:
     except Exception as e:
         logger.warning(f"⚠️ Không lưu được ảnh: {e}")
     return None
+
+
+def _generate_pollinations_image(headline: str, blocks: list, query: str) -> tuple[str, str] | tuple[None, None]:
+    """
+    Tạo ảnh AI bằng Pollinations.ai (miễn phí, không cần API key).
+    Trả về (image_url, local_path).
+    """
+    import urllib.parse
+
+    # Xây dựng prompt từ nội dung bài
+    n = len(blocks)
+    block_titles = ", ".join(b.get("title", "") for b in blocks[:3] if b.get("title"))
+
+    if n in (5, 7):
+        style = f"professional infographic {n}-step roadmap"
+    else:
+        style = "professional infographic data visualization"
+
+    prompt = (
+        f"{style}, topic: {query}, "
+        f"sections: {block_titles}, "
+        "vibrant cobalt blue orange emerald green colors, "
+        "clean modern flat design, bold typography, "
+        "white background, high contrast, no watermark"
+    )
+
+    encoded = urllib.parse.quote(prompt)
+    seed = abs(hash(headline)) % 999999
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=630&model=flux&nologo=true&seed={seed}"
+
+    logger.info(f"🎨 Generating AI image via Pollinations: {prompt[:80]}...")
+    local_path = _save_image(url, query, "pollinations")
+    return url, local_path
 
 SYSTEM_PROMPT = """Bạn là prompt engineer chuyên tạo search query cho stock photo.
 Luôn trả về JSON hợp lệ, không có text ngoài JSON."""
@@ -85,12 +118,29 @@ class DesignerAgent:
         return result.content
 
     @staticmethod
-    async def download_images(image_configs: list, source: str = "unsplash") -> list:
+    async def download_images(image_configs: list, source: str = "unsplash",
+                              blocks: list = None, headline: str = "") -> list:
         """
-        Tải ảnh từ Unsplash hoặc Pexels.
+        Tạo ảnh AI bằng Pollinations (chính) → fallback Unsplash/Pexels.
         source: "unsplash" | "pexels"
-        Tự động fallback sang source còn lại nếu key thiếu.
         """
+        blocks = blocks or []
+
+        # Thử Pollinations AI trước (miễn phí, ảnh khớp nội dung)
+        if image_configs:
+            query = image_configs[0].get("search_query", "technology")
+            try:
+                ai_url, ai_local = _generate_pollinations_image(headline, blocks, query)
+                if ai_local:
+                    for cfg in image_configs:
+                        cfg["image_url"] = ai_url
+                        cfg["local_path"] = ai_local
+                        cfg["image_source"] = "pollinations_ai"
+                    logger.info("✅ Dùng ảnh AI từ Pollinations")
+                    return image_configs
+            except Exception as e:
+                logger.warning(f"⚠️ Pollinations thất bại: {e} — fallback stock photo")
+
         # Chọn nguồn, fallback nếu key không hợp lệ
         use_source = source
         if use_source == "unsplash" and not _is_valid_key(settings.unsplash_access_key):
