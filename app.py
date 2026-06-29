@@ -68,15 +68,73 @@ with col3:
 st.markdown("")
 col_run1, col_run2 = st.columns(2)
 with col_run1:
-    if st.button("⚡ RUN PIPELINE NOW (Lần 1)", use_container_width=True):
+    if st.button("⚡ RUN PIPELINE NOW (Lần 1 — Unsplash)", use_container_width=True):
         orchestrator.run_now("run1")
-        st.success("✅ Pipeline run1 đang chạy — xem log bên dưới")
+        st.success("✅ Pipeline run1 đang chạy — chờ vài giây rồi xem bài bên dưới")
 with col_run2:
-    if st.button("⚡ RUN PIPELINE NOW (Lần 2)", use_container_width=True):
+    if st.button("⚡ RUN PIPELINE NOW (Lần 2 — Pexels)", use_container_width=True):
         orchestrator.run_now("run2")
-        st.success("✅ Pipeline run2 đang chạy — xem log bên dưới")
+        st.success("✅ Pipeline run2 đang chạy — chờ vài giây rồi xem bài bên dưới")
 
 st.markdown("---")
+
+# ── DUYỆT BÀI TRƯỚC KHI ĐĂNG (tự refresh mỗi 5 giây) ──────────
+@st.fragment(run_every=5)
+def review_panel():
+    has_pending = any(orchestrator.pending_posts.get(r) for r in ["run1", "run2"])
+    if not has_pending:
+        return
+
+    st.subheader("📋 Bài chờ duyệt")
+
+    for run_id in ["run1", "run2"]:
+        post = orchestrator.pending_posts.get(run_id)
+        if not post:
+            continue
+
+        label = "Lần 1 (Unsplash)" if run_id == "run1" else "Lần 2 (Pexels)"
+        with st.expander(f"✍️ {label} — Bấm để xem & duyệt bài", expanded=True):
+
+            # Hiện nội dung bài
+            st.markdown("**📝 Nội dung bài viết:**")
+            st.text_area(
+                label="",
+                value=post.get("content", ""),
+                height=400,
+                key=f"content_{run_id}",
+                disabled=True,
+            )
+
+            # Hiện ảnh tìm được (nếu có)
+            image_url = post.get("image_url")
+            if image_url:
+                st.markdown("**🖼 Ảnh AI tìm được:**")
+                st.image(image_url, width=400)
+
+            # Upload ảnh tùy chọn
+            st.markdown("**📤 Upload ảnh của bạn (tùy chọn — ghi đè ảnh AI):**")
+            uploaded = st.file_uploader(
+                "Chọn ảnh JPG/PNG",
+                type=["jpg", "jpeg", "png", "webp"],
+                key=f"upload_{run_id}",
+            )
+
+            col_approve, col_reject = st.columns(2)
+            with col_approve:
+                if st.button(f"✅ Duyệt & Đăng lên Facebook", key=f"approve_{run_id}", use_container_width=True):
+                    img_bytes = uploaded.read() if uploaded else None
+                    img_name = uploaded.name if uploaded else None
+                    orchestrator.approve_and_publish(run_id, img_bytes, img_name)
+                    st.success("🚀 Đang đăng lên Facebook...")
+            with col_reject:
+                if st.button(f"❌ Bỏ qua bài này", key=f"reject_{run_id}", use_container_width=True):
+                    orchestrator.reject_post(run_id)
+                    st.warning("🗑️ Đã bỏ qua bài.")
+                    st.rerun()
+
+    st.markdown("---")
+
+review_panel()
 
 # ── LIVE MONITOR (tự refresh mỗi 5 giây) ──────────────────────
 @st.fragment(run_every=5)
@@ -114,7 +172,7 @@ def live_monitor():
             with st.spinner(f"{agent} Agent đang chạy..."):
                 pass
         elif log_status == "COMPLETED":
-            st.success(f"✅ **{agent}** hoàn tất")
+            st.success(f"✅ **{agent}** hoàn tất — xem bài chờ duyệt ở trên ☝️")
         elif log_status in ("PUBLISHED", "SKIPPED"):
             st.success(f"✅ **Đăng bài xong!** ({log_status})")
         elif log_status == "FAILED":
@@ -142,7 +200,7 @@ def live_monitor():
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=400)
     else:
-        st.info("📭 Chưa có log. Bấm START SYSTEM để bắt đầu.")
+        st.info("📭 Chưa có log. Bấm RUN PIPELINE NOW để bắt đầu.")
 
     # ── BÀI ĐÃ ĐĂNG THÀNH CÔNG ────────────────────────────────
     if orchestrator.published_posts:
@@ -167,13 +225,13 @@ with col1:
     st.info(f"""
 **Lần 1 (Unsplash)**
 - 🔍 {settings.scraper_time} — Cào tin tức
-- ✍️ {settings.processor_time} — AI viết bài
-- 📤 {settings.publisher_time} — Đăng Facebook
+- ✍️ {settings.processor_time} — AI viết bài → chờ duyệt
+- 📤 {settings.publisher_time} — Tự đăng nếu đã duyệt
     """)
 with col2:
     st.info(f"""
 **Lần 2 (Pexels)**
 - 🔍 {settings.scraper_time_2} — Cào tin tức
-- ✍️ {settings.processor_time_2} — AI viết bài
-- 📤 {settings.publisher_time_2} — Đăng Facebook
+- ✍️ {settings.processor_time_2} — AI viết bài → chờ duyệt
+- 📤 {settings.publisher_time_2} — Tự đăng nếu đã duyệt
     """)

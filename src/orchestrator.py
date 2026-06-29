@@ -59,19 +59,49 @@ class Orchestrator:
         self._pipeline_data: Dict[str, Any] = _load_pipeline_cache()
         # Lưu lịch sử các bài đã đăng thành công
         self.published_posts: list = []
+        # Bài đang chờ duyệt: {"run1": {...}, "run2": {...}}
+        self.pending_posts: Dict[str, Any] = {"run1": None, "run2": None}
 
     def run_now(self, run_id: str = "run1"):
-        """Chạy toàn bộ pipeline ngay lập tức trong background thread."""
+        """Chạy Scraper + Processor ngay, dừng lại chờ duyệt."""
         def _run():
             logger.info(f"🚀 RUN NOW triggered ({run_id})")
             self._execute_scraper(run_id)
             self._execute_processor(run_id)
-            self._execute_publisher(run_id)
-            logger.info(f"🏁 RUN NOW hoàn tất ({run_id})")
+            logger.info(f"✋ Pipeline dừng — chờ duyệt bài ({run_id})")
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
         return {"status": "started", "run_id": run_id}
+
+    def approve_and_publish(self, run_id: str, image_bytes: bytes = None, image_name: str = None):
+        """Duyệt bài và đăng lên Facebook, có thể kèm ảnh upload từ user."""
+        def _publish():
+            # Lưu ảnh upload vào temp file nếu có
+            if image_bytes:
+                import tempfile, os
+                ext = (image_name or "image.jpg").rsplit(".", 1)[-1]
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
+                tmp.write(image_bytes)
+                tmp.close()
+                # Ghi đè image vào pipeline_data
+                self._pipeline_data[run_id]["images"] = [{"local_path": tmp.name, "url": None}]
+                _save_pipeline_cache(self._pipeline_data)
+                logger.info(f"📸 Ảnh upload được lưu: {tmp.name}")
+            self._execute_publisher(run_id)
+            self.pending_posts[run_id] = None
+
+        t = threading.Thread(target=_publish, daemon=True)
+        t.start()
+        return {"status": "publishing"}
+
+    def reject_post(self, run_id: str):
+        """Bỏ qua bài, xóa data pipeline."""
+        self._pipeline_data[run_id] = {}
+        self.pending_posts[run_id] = None
+        _save_pipeline_cache(self._pipeline_data)
+        logger.info(f"❌ Bài {run_id} bị từ chối, xóa data")
+        return {"status": "rejected"}
 
     def start_system(self) -> Dict[str, Any]:
         """
@@ -282,8 +312,23 @@ class Orchestrator:
             self._pipeline_data[run_id]["images"] = images
             _save_pipeline_cache(self._pipeline_data)
 
+            # Parse bài viết để hiển thị preview trên UI
+            from src.agents.base import extract_json as _ej
+            seo_posts = _ej(optimized, expect_array=True) or []
+            if seo_posts:
+                best = max(seo_posts, key=lambda p: p.get("estimated_reach", 0))
+                self.pending_posts[run_id] = {
+                    "run_id": run_id,
+                    "content": best.get("optimized_content", ""),
+                    "hashtags": best.get("hashtags_optimized", []),
+                    "image_url": images[0].get("url") if images else None,
+                    "image_local": images[0].get("local_path") if images else None,
+                    "estimated_reach": best.get("estimated_reach", 0),
+                }
+                logger.info(f"[{execution_id}] 📋 Bài đang chờ duyệt trên UI")
+
             total = (datetime.now(TZ) - t0).seconds
-            logger.info(f"[{execution_id}] ✅ Processor hoàn tất sau {total}s tổng cộng")
+            logger.info(f"[{execution_id}] ✅ Processor hoàn tất sau {total}s — chờ duyệt bài")
             self._log_execution("Processor", "COMPLETED", execution_id)
             self.last_execution_time = datetime.now(TZ)
 
@@ -295,6 +340,11 @@ class Orchestrator:
         """Execute Publisher Agent → đăng lên Facebook thật"""
         execution_id = f"publisher_{run_id}_{datetime.now(TZ).timestamp()}"
         try:
+            # Nếu được gọi từ scheduler (không phải approve), bỏ qua nếu chưa duyệt
+            if not self._pipeline_data[run_id].get("optimized"):
+                logger.info(f"[{execution_id}] ⏭️ Không có bài chờ đăng cho {run_id}, bỏ qua")
+                return
+
             logger.info(f"[{execution_id}] 📤 Publisher Agent starting ({run_id})...")
             self._log_execution("Publisher", "STARTED", execution_id)
 
