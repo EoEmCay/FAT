@@ -78,69 +78,73 @@ with col_run2:
 
 st.markdown("---")
 
-# ── DUYỆT BÀI TRƯỚC KHI ĐĂNG (tự refresh mỗi 5 giây) ──────────
+# ── HÀNG ĐỢI DUYỆT BÀI (tự refresh mỗi 5 giây) ───────────────
 @st.fragment(run_every=5)
 def review_panel():
-    has_pending = any(orchestrator.pending_posts.get(r) for r in ["run1", "run2"])
-    if not has_pending:
+    queue = orchestrator.post_queue
+    if not queue:
         return
 
-    st.subheader("📋 Bài chờ duyệt")
+    st.subheader(f"📋 Hàng đợi duyệt bài ({len(queue)}/99)")
 
-    for run_id in ["run1", "run2"]:
-        post = orchestrator.pending_posts.get(run_id)
-        if not post:
-            continue
+    for idx, post in enumerate(queue):
+        q_num = post.get("queue_num", idx + 1)
+        run_id = post.get("run_id", "run1")
+        source = "Unsplash" if run_id == "run1" else "Pexels"
+        created = post.get("created_at", "")
+        blocks = post.get("blocks", [])
+        n_blocks = len(blocks)
 
-        label = "Lần 1 (Unsplash)" if run_id == "run1" else "Lần 2 (Pexels)"
-        with st.expander(f"✍️ {label} — Bấm để xem & duyệt bài", expanded=True):
+        with st.expander(f"#{q_num} — {created} ({source})", expanded=(idx == 0)):
 
-            # Thông báo drip
-            blocks = post.get("blocks", [])
+            # Drip status
             if post.get("drip_eligible"):
-                st.info(f"💬 **Comment Drip ON** — {len(blocks)} comments sẽ tự đăng cách nhau {60//len(blocks)} phút sau khi bài lên")
-            else:
-                st.warning(f"ℹ️ {len(blocks)} blocks — Comment drip chỉ chạy với 5 hoặc 7 blocks")
+                st.info(f"💬 Comment Drip ON — {n_blocks} comments, cách nhau {60 // n_blocks} phút")
+            elif n_blocks:
+                st.caption(f"ℹ️ {n_blocks} blocks — drip chỉ chạy với 5 hoặc 7 blocks")
 
-            # Hiện nội dung bài
-            st.markdown("**📝 Nội dung bài viết:**")
-            st.text_area(
-                label="",
-                value=post.get("content", ""),
-                height=400,
-                key=f"content_{run_id}",
-                disabled=True,
-            )
+            col_text, col_img = st.columns([3, 2])
 
-            # Hiện ảnh tìm được (nếu có)
-            image_url = post.get("image_url")
-            if image_url:
-                st.markdown("**🖼 Ảnh AI tìm được:**")
-                st.image(image_url, width=400)
+            with col_text:
+                st.markdown("**📝 Nội dung bài:**")
+                st.text_area("", value=post.get("content", ""), height=350,
+                             key=f"content_{q_num}", disabled=True)
 
-            # Upload ảnh tùy chọn
-            st.markdown("**📤 Upload ảnh của bạn (tùy chọn — ghi đè ảnh AI):**")
-            uploaded = st.file_uploader(
-                "Chọn ảnh JPG/PNG",
-                type=["jpg", "jpeg", "png", "webp"],
-                key=f"upload_{run_id}",
-            )
+            with col_img:
+                # Hiện ảnh AI tìm được
+                local_path = post.get("image_local")
+                image_url = post.get("image_url")
 
-            col_approve, col_reject = st.columns(2)
-            with col_approve:
-                if st.button(f"✅ Duyệt & Đăng lên Facebook", key=f"approve_{run_id}", use_container_width=True):
+                if local_path and os.path.exists(local_path):
+                    st.markdown(f"**🖼 Ảnh AI (lưu trong AIimg/):**")
+                    st.image(local_path, use_container_width=True)
+                elif image_url:
+                    st.markdown("**🖼 Ảnh AI:**")
+                    st.image(image_url, use_container_width=True)
+                else:
+                    st.caption("Chưa có ảnh AI")
+
+                st.markdown("**📤 Upload ảnh của bạn (ghi đè ảnh AI):**")
+                uploaded = st.file_uploader("JPG/PNG", type=["jpg","jpeg","png","webp"],
+                                            key=f"upload_{q_num}")
+
+            col_ok, col_no = st.columns(2)
+            with col_ok:
+                if st.button(f"✅ Duyệt & Đăng #{q_num}", key=f"approve_{q_num}",
+                             use_container_width=True):
                     img_bytes = uploaded.read() if uploaded else None
                     img_name = uploaded.name if uploaded else None
-                    orchestrator.approve_and_publish(run_id, img_bytes, img_name)
-                    st.success("🚀 Đang đăng lên Facebook...")
-            with col_reject:
-                if st.button(f"❌ Bỏ qua bài này", key=f"reject_{run_id}", use_container_width=True):
-                    orchestrator.reject_post(run_id)
-                    st.warning("🗑️ Đã bỏ qua bài.")
+                    orchestrator.approve_and_publish(idx, img_bytes, img_name)
+                    st.success(f"🚀 Bài #{q_num} đang được đăng...")
+            with col_no:
+                if st.button(f"❌ Bỏ qua #{q_num}", key=f"reject_{q_num}",
+                             use_container_width=True):
+                    orchestrator.reject_post(idx)
                     st.rerun()
 
     st.markdown("---")
 
+import os
 review_panel()
 
 # ── LIVE MONITOR (tự refresh mỗi 5 giây) ──────────────────────

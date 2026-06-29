@@ -59,8 +59,9 @@ class Orchestrator:
         self._pipeline_data: Dict[str, Any] = _load_pipeline_cache()
         # Lưu lịch sử các bài đã đăng thành công
         self.published_posts: list = []
-        # Bài đang chờ duyệt: {"run1": {...}, "run2": {...}}
-        self.pending_posts: Dict[str, Any] = {"run1": None, "run2": None}
+        # Hàng đợi bài chờ duyệt (tối đa 99)
+        self.post_queue: list = []
+        self._queue_counter: int = 0
 
     def run_now(self, run_id: str = "run1"):
         """Chạy Scraper + Processor ngay, dừng lại chờ duyệt."""
@@ -68,39 +69,48 @@ class Orchestrator:
             logger.info(f"🚀 RUN NOW triggered ({run_id})")
             self._execute_scraper(run_id)
             self._execute_processor(run_id)
-            logger.info(f"✋ Pipeline dừng — chờ duyệt bài ({run_id})")
+            logger.info(f"✋ Pipeline dừng — bài đã vào hàng đợi ({run_id})")
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
         return {"status": "started", "run_id": run_id}
 
-    def approve_and_publish(self, run_id: str, image_bytes: bytes = None, image_name: str = None):
-        """Duyệt bài và đăng lên Facebook, có thể kèm ảnh upload từ user."""
+    def approve_and_publish(self, queue_idx: int, image_bytes: bytes = None, image_name: str = None):
+        """Duyệt bài theo index trong queue và đăng lên Facebook."""
+        if queue_idx >= len(self.post_queue):
+            return {"status": "error", "message": "Index không hợp lệ"}
+
+        post = self.post_queue[queue_idx]
+        run_id = post.get("run_id", "run1")
+
         def _publish():
-            # Lưu ảnh upload vào temp file nếu có
             if image_bytes:
-                import tempfile, os
+                import tempfile
                 ext = (image_name or "image.jpg").rsplit(".", 1)[-1]
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
                 tmp.write(image_bytes)
                 tmp.close()
-                # Ghi đè image vào pipeline_data
                 self._pipeline_data[run_id]["images"] = [{"local_path": tmp.name, "url": None}]
                 _save_pipeline_cache(self._pipeline_data)
-                logger.info(f"📸 Ảnh upload được lưu: {tmp.name}")
+                logger.info(f"📸 Ảnh upload lưu: {tmp.name}")
             self._execute_publisher(run_id)
-            self.pending_posts[run_id] = None
+            # Xóa khỏi queue sau khi đăng xong
+            if post in self.post_queue:
+                self.post_queue.remove(post)
 
         t = threading.Thread(target=_publish, daemon=True)
         t.start()
         return {"status": "publishing"}
 
-    def reject_post(self, run_id: str):
-        """Bỏ qua bài, xóa data pipeline."""
+    def reject_post(self, queue_idx: int):
+        """Bỏ qua bài theo index, xóa khỏi queue."""
+        if queue_idx >= len(self.post_queue):
+            return {"status": "error"}
+        post = self.post_queue.pop(queue_idx)
+        run_id = post.get("run_id", "run1")
         self._pipeline_data[run_id] = {}
-        self.pending_posts[run_id] = None
         _save_pipeline_cache(self._pipeline_data)
-        logger.info(f"❌ Bài {run_id} bị từ chối, xóa data")
+        logger.info(f"❌ Bài #{post.get('queue_num')} bị từ chối")
         return {"status": "rejected"}
 
     def start_system(self) -> Dict[str, Any]:
@@ -329,29 +339,31 @@ class Orchestrator:
                 n_blocks = len(blocks)
                 drip_eligible = n_blocks in (5, 7)
 
-                # Nếu đủ điều kiện drip: post content chỉ là headline + CTA
                 if drip_eligible and headline:
                     hashtags = best.get("hashtags_optimized", [])
-                    post_content = (
-                        f"{headline}\n\n"
-                        f"👇 Đọc thêm bên dưới\n\n"
-                        + " ".join(hashtags)
-                    )
+                    post_content = f"{headline}\n\n👇 Đọc thêm bên dưới\n\n" + " ".join(hashtags)
                 else:
                     post_content = best.get("optimized_content", "")
 
-                self.pending_posts[run_id] = {
-                    "run_id": run_id,
-                    "content": post_content,
-                    "hashtags": best.get("hashtags_optimized", []),
-                    "blocks": blocks,
-                    "headline": headline,
-                    "drip_eligible": drip_eligible,
-                    "image_url": images[0].get("url") if images else None,
-                    "image_local": images[0].get("local_path") if images else None,
-                    "estimated_reach": best.get("estimated_reach", 0),
-                }
-                logger.info(f"[{execution_id}] 📋 Bài chờ duyệt — {n_blocks} blocks {'(sẽ drip comment)' if drip_eligible else ''}")
+                # Giới hạn queue 99 bài
+                if len(self.post_queue) < 99:
+                    self._queue_counter += 1
+                    self.post_queue.append({
+                        "queue_num": self._queue_counter,
+                        "run_id": run_id,
+                        "content": post_content,
+                        "hashtags": best.get("hashtags_optimized", []),
+                        "blocks": blocks,
+                        "headline": headline,
+                        "drip_eligible": drip_eligible,
+                        "image_url": images[0].get("url") if images else None,
+                        "image_local": images[0].get("local_path") if images else None,
+                        "estimated_reach": best.get("estimated_reach", 0),
+                        "created_at": datetime.now(TZ).strftime("%H:%M %d/%m/%Y"),
+                    })
+                    logger.info(f"[{execution_id}] 📋 Bài #{self._queue_counter} vào hàng đợi — {n_blocks} blocks {'(drip)' if drip_eligible else ''}")
+                else:
+                    logger.warning(f"[{execution_id}] ⚠️ Hàng đợi đã đầy (99 bài)")
 
             total = (datetime.now(TZ) - t0).seconds
             logger.info(f"[{execution_id}] ✅ Processor hoàn tất sau {total}s — chờ duyệt bài")
@@ -366,9 +378,8 @@ class Orchestrator:
         """Execute Publisher Agent → đăng lên Facebook thật"""
         execution_id = f"publisher_{run_id}_{datetime.now(TZ).timestamp()}"
         try:
-            # Nếu được gọi từ scheduler (không phải approve), bỏ qua nếu chưa duyệt
             if not self._pipeline_data[run_id].get("optimized"):
-                logger.info(f"[{execution_id}] ⏭️ Không có bài chờ đăng cho {run_id}, bỏ qua")
+                logger.info(f"[{execution_id}] ⏭️ Không có bài được duyệt cho {run_id}, bỏ qua")
                 return
 
             logger.info(f"[{execution_id}] 📤 Publisher Agent starting ({run_id})...")

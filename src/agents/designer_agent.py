@@ -5,12 +5,38 @@ Tạo search query và tải ảnh — xen kẽ Unsplash (run1) và Pexels (run2
 
 import logging
 import asyncio
+import os
+import re
 import requests
+from datetime import datetime
 from langchain_core.prompts import ChatPromptTemplate
 from src.agents.base import get_llm
-from config.config import settings
+from config.config import settings, PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
+
+AIIMG_DIR = os.path.join(PROJECT_ROOT, "AIimg")
+os.makedirs(AIIMG_DIR, exist_ok=True)
+
+
+def _save_image(image_url: str, query: str, source: str) -> str | None:
+    """Download ảnh từ URL về thư mục AIimg/, trả về local path."""
+    try:
+        slug = re.sub(r"[^a-z0-9]+", "_", query.lower())[:30]
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{ts}_{source}_{slug}.jpg"
+        filepath = os.path.join(AIIMG_DIR, filename)
+
+        resp = requests.get(image_url, timeout=15, stream=True)
+        if resp.status_code == 200:
+            with open(filepath, "wb") as f:
+                for chunk in resp.iter_content(8192):
+                    f.write(chunk)
+            logger.info(f"💾 Ảnh lưu: AIimg/{filename}")
+            return filepath
+    except Exception as e:
+        logger.warning(f"⚠️ Không lưu được ảnh: {e}")
+    return None
 
 SYSTEM_PROMPT = """Bạn là prompt engineer chuyên tạo search query cho stock photo.
 Luôn trả về JSON hợp lệ, không có text ngoài JSON."""
@@ -106,8 +132,10 @@ class DesignerAgent:
                 )
                 results = resp.json().get("results", [])
                 if results:
-                    config["image_url"] = results[0]["urls"]["regular"]
+                    url = results[0]["urls"]["regular"]
+                    config["image_url"] = url
                     config["image_source"] = "unsplash"
+                    config["local_path"] = _save_image(url, query, "unsplash")
                     logger.info(f"✅ Unsplash: {query}")
                 else:
                     config["image_url"] = None
@@ -134,8 +162,10 @@ class DesignerAgent:
                 )
                 photos = resp.json().get("photos", [])
                 if photos:
-                    config["image_url"] = photos[0]["src"]["large"]
+                    url = photos[0]["src"]["large"]
+                    config["image_url"] = url
                     config["image_source"] = "pexels"
+                    config["local_path"] = _save_image(url, query, "pexels")
                     logger.info(f"✅ Pexels: {query}")
                 else:
                     config["image_url"] = None

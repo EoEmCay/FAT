@@ -5,3 +5,6 @@ __pycache__/
 *.db
 logs/
 .streamlit/secrets.toml
+AIimg/*.jpg
+AIimg/*.png
+AIimg/*.webp
