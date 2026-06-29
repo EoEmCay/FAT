@@ -4,6 +4,8 @@ Runs on APScheduler with timezone support
 """
 
 import logging
+import json
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -14,6 +16,26 @@ from config.config import settings, TZ
 from src.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
+
+_PIPELINE_CACHE_FILE = "/tmp/pipeline_data.json"
+
+
+def _load_pipeline_cache() -> Dict[str, Any]:
+    try:
+        if os.path.exists(_PIPELINE_CACHE_FILE):
+            with open(_PIPELINE_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"run1": {}, "run2": {}}
+
+
+def _save_pipeline_cache(data: Dict[str, Any]):
+    try:
+        with open(_PIPELINE_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"⚠️ Không lưu được pipeline cache: {e}")
 
 
 class Orchestrator:
@@ -32,8 +54,8 @@ class Orchestrator:
         self.next_execution_time: Optional[datetime] = None
         self.current_status: str = "STOPPED"
         self.execution_logs: list = []
-        # Lưu output riêng cho từng lần chạy: {"run1": {...}, "run2": {...}}
-        self._pipeline_data: Dict[str, Any] = {"run1": {}, "run2": {}}
+        # Load từ file để tồn tại qua restart
+        self._pipeline_data: Dict[str, Any] = _load_pipeline_cache()
         # Lưu lịch sử các bài đã đăng thành công
         self.published_posts: list = []
 
@@ -212,6 +234,7 @@ class Orchestrator:
 
             self._pipeline_data[run_id]["optimized"] = optimized
             self._pipeline_data[run_id]["images"] = images
+            _save_pipeline_cache(self._pipeline_data)
 
             logger.info(f"[{execution_id}] ✅ Processor completed")
             self._log_execution("Processor", "COMPLETED", execution_id)
@@ -275,6 +298,7 @@ class Orchestrator:
 
             # Reset data sau khi đăng xong
             self._pipeline_data[run_id] = {}
+            _save_pipeline_cache(self._pipeline_data)
 
             self._log_execution("Publisher", status.upper(), execution_id)
             self.last_execution_time = datetime.now(TZ)
