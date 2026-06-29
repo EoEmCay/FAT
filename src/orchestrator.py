@@ -248,8 +248,12 @@ class Orchestrator:
                 self._log_execution("Publisher", "FAILED", execution_id, "No payload")
                 return
 
-            result = asyncio.run(PublisherAgent.publish_to_facebook(payload_data["facebook_payload"]))
+            fb_payload = payload_data["facebook_payload"]
+            logger.info(f"[{execution_id}] 📦 Payload message preview: {str(fb_payload.get('message',''))[:100]}")
+
+            result = asyncio.run(PublisherAgent.publish_to_facebook(fb_payload))
             status = result.get("status")
+            logger.info(f"[{execution_id}] 📬 Facebook API result: {result}")
 
             if status == "published":
                 post_id = result.get("post_id")
@@ -264,8 +268,10 @@ class Orchestrator:
                 })
             elif status == "skipped":
                 logger.warning(f"[{execution_id}] ⚠️ Bỏ qua: {result.get('reason')}")
+            elif status == "failed":
+                logger.error(f"[{execution_id}] ❌ Facebook API từ chối: {result.get('error')} | HTTP {result.get('http_status')}")
             else:
-                logger.error(f"[{execution_id}] ❌ Đăng thất bại: {result.get('error')}")
+                logger.error(f"[{execution_id}] ❌ Lỗi không xác định: {result}")
 
             # Reset data sau khi đăng xong
             self._pipeline_data[run_id] = {}
