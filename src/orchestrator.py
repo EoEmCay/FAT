@@ -34,6 +34,8 @@ class Orchestrator:
         self.execution_logs: list = []
         # Lưu output riêng cho từng lần chạy: {"run1": {...}, "run2": {...}}
         self._pipeline_data: Dict[str, Any] = {"run1": {}, "run2": {}}
+        # Lưu lịch sử các bài đã đăng thành công
+        self.published_posts: list = []
 
     def start_system(self) -> Dict[str, Any]:
         """
@@ -250,7 +252,16 @@ class Orchestrator:
             status = result.get("status")
 
             if status == "published":
-                logger.info(f"[{execution_id}] ✅ Đăng thành công! Post ID: {result.get('post_id')}")
+                post_id = result.get("post_id")
+                post_url = result.get("facebook_url", f"https://facebook.com/{post_id}")
+                published_at = datetime.now(TZ).strftime("%H:%M %d/%m/%Y")
+                logger.info(f"[{execution_id}] ✅ Đăng thành công! Post ID: {post_id}")
+                self.published_posts.append({
+                    "time": published_at,
+                    "post_id": post_id,
+                    "url": post_url,
+                    "run_id": run_id,
+                })
             elif status == "skipped":
                 logger.warning(f"[{execution_id}] ⚠️ Bỏ qua: {result.get('reason')}")
             else:

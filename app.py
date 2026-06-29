@@ -133,6 +133,17 @@ def live_monitor():
     else:
         st.info("📭 Chưa có log. Bấm START SYSTEM để bắt đầu.")
 
+    # ── BÀI ĐÃ ĐĂNG THÀNH CÔNG ────────────────────────────────
+    if orchestrator.published_posts:
+        st.markdown("---")
+        st.subheader("✅ Bài đã đăng thành công")
+        for post in reversed(orchestrator.published_posts):
+            st.success(
+                f"🕐 **{post['time']}** — "
+                f"[Xem bài viết trên Facebook]({post['url']})  "
+                f"*(Post ID: {post['post_id']})*"
+            )
+
     st.caption(f"🕐 {datetime.now(TZ).strftime('%H:%M:%S')} ICT | Tự cập nhật mỗi 5 giây")
 
 live_monitor()
