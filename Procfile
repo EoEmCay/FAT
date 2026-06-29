@@ -1,1 +1,1 @@
-web: streamlit run main.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableWebsocketCompression false --server.enableCORS false
+web: streamlit run ui/streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableWebsocketCompression false --server.enableCORS false
