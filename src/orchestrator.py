@@ -210,6 +210,9 @@ class Orchestrator:
             logger.info(f"[{execution_id}] SEO Agent running...")
             optimized = SEOAgent.run(written)
 
+            logger.info(f"[{execution_id}] [DEBUG] SEOAgent.run() raw output (first 500 chars): {optimized[:500]!r}")
+            logger.info(f"[{execution_id}] [DEBUG] SEOAgent.run() total output length: {len(optimized)} chars")
+
             self._pipeline_data[run_id]["optimized"] = optimized
             self._pipeline_data[run_id]["images"] = images
 
@@ -220,6 +223,7 @@ class Orchestrator:
         except Exception as e:
             logger.error(f"[{execution_id}] ❌ Processor failed: {str(e)}", exc_info=True)
             self._log_execution("Processor", "FAILED", execution_id, str(e))
+
 
     def _execute_publisher(self, run_id: str = "run1"):
         """Execute Publisher Agent → đăng lên Facebook thật"""
@@ -240,8 +244,16 @@ class Orchestrator:
                 self._log_execution("Publisher", "FAILED", execution_id, "No processor output")
                 return
 
+            logger.info(f"[{execution_id}] [DEBUG] optimized passed to PublisherAgent (first 500 chars): {optimized[:500]!r}")
+            logger.info(f"[{execution_id}] [DEBUG] images passed to PublisherAgent: {images!r}")
+
             payload_json = PublisherAgent.run(optimized, json.dumps(images))
+
+            logger.info(f"[{execution_id}] [DEBUG] PublisherAgent.run() raw return (first 1000 chars): {payload_json[:1000]!r}")
+
             payload_data = extract_json(payload_json, expect_array=False) or {}
+
+            logger.info(f"[{execution_id}] [DEBUG] extract_json() result: {payload_data!r}")
 
             if not payload_data or "facebook_payload" not in payload_data:
                 logger.error(f"[{execution_id}] ❌ Publisher không tạo được payload")
