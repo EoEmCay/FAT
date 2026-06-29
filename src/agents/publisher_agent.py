@@ -91,9 +91,11 @@ class PublisherAgent:
                 f"{settings.facebook_api_version}/"
                 f"{settings.facebook_page_id}/feed"
             )
-            # Dùng access_token trong body + form-encoded (cách duy nhất đã test thành công)
-            post_data = {k: v for k, v in payload.items() if v}
-            post_data["access_token"] = settings.facebook_access_token
+            # Chỉ gửi message — Facebook từ chối name/picture/description nếu không phải chủ URL
+            post_data = {
+                "message": payload.get("message", ""),
+                "access_token": settings.facebook_access_token,
+            }
 
             resp = requests.post(url, data=post_data, timeout=30)
 
