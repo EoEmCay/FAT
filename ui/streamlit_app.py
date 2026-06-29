@@ -3,6 +3,10 @@ Streamlit Web UI for Orchestrator
 Simple interface with START button, status, and real-time logs
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
