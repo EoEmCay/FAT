@@ -312,20 +312,46 @@ class Orchestrator:
             self._pipeline_data[run_id]["images"] = images
             _save_pipeline_cache(self._pipeline_data)
 
+            # Parse writer output để lấy blocks cho comment drip
+            writer_posts = extract_json(written, expect_array=True) or []
+            best_written = max(writer_posts, key=lambda p: len(p.get("blocks", []))) if writer_posts else {}
+            blocks = best_written.get("blocks", [])
+            headline = best_written.get("headline", "")
+            self._pipeline_data[run_id]["blocks"] = blocks
+            self._pipeline_data[run_id]["headline"] = headline
+            _save_pipeline_cache(self._pipeline_data)
+
             # Parse bài viết để hiển thị preview trên UI
             from src.agents.base import extract_json as _ej
             seo_posts = _ej(optimized, expect_array=True) or []
             if seo_posts:
                 best = max(seo_posts, key=lambda p: p.get("estimated_reach", 0))
+                n_blocks = len(blocks)
+                drip_eligible = n_blocks in (5, 7)
+
+                # Nếu đủ điều kiện drip: post content chỉ là headline + CTA
+                if drip_eligible and headline:
+                    hashtags = best.get("hashtags_optimized", [])
+                    post_content = (
+                        f"{headline}\n\n"
+                        f"👇 Đọc thêm bên dưới\n\n"
+                        + " ".join(hashtags)
+                    )
+                else:
+                    post_content = best.get("optimized_content", "")
+
                 self.pending_posts[run_id] = {
                     "run_id": run_id,
-                    "content": best.get("optimized_content", ""),
+                    "content": post_content,
                     "hashtags": best.get("hashtags_optimized", []),
+                    "blocks": blocks,
+                    "headline": headline,
+                    "drip_eligible": drip_eligible,
                     "image_url": images[0].get("url") if images else None,
                     "image_local": images[0].get("local_path") if images else None,
                     "estimated_reach": best.get("estimated_reach", 0),
                 }
-                logger.info(f"[{execution_id}] 📋 Bài đang chờ duyệt trên UI")
+                logger.info(f"[{execution_id}] 📋 Bài chờ duyệt — {n_blocks} blocks {'(sẽ drip comment)' if drip_eligible else ''}")
 
             total = (datetime.now(TZ) - t0).seconds
             logger.info(f"[{execution_id}] ✅ Processor hoàn tất sau {total}s — chờ duyệt bài")
@@ -386,6 +412,16 @@ class Orchestrator:
                     "url": post_url,
                     "run_id": run_id,
                 })
+                # Bắt đầu comment drip nếu đủ điều kiện
+                blocks = self._pipeline_data[run_id].get("blocks", [])
+                if len(blocks) in (5, 7) and post_id:
+                    t = threading.Thread(
+                        target=self._comment_drip,
+                        args=(post_id, blocks),
+                        daemon=True,
+                    )
+                    t.start()
+                    logger.info(f"[{execution_id}] 💬 Comment drip bắt đầu — {len(blocks)} comments trong 60 phút")
             elif status == "skipped":
                 logger.warning(f"[{execution_id}] ⚠️ Bỏ qua: {result.get('reason')}")
             elif status == "failed":
@@ -423,6 +459,56 @@ class Orchestrator:
 
         except Exception as e:
             logger.error(f"❌ Health check failed: {str(e)}")
+
+    def _comment_drip(self, post_id: str, blocks: list):
+        """Đăng từng block thành comment cách đều nhau trong 60 phút."""
+        import time as _time
+        import requests as _req
+
+        n = len(blocks)  # 5 hoặc 7
+        interval = 3600 / n  # giây giữa mỗi comment
+
+        token = settings.facebook_access_token
+        version = settings.facebook_api_version
+        url = f"https://graph.facebook.com/{version}/{post_id}/comments"
+
+        logger.info(f"💬 Comment drip: {n} comments, cách nhau {interval/60:.1f} phút")
+
+        for i, block in enumerate(blocks):
+            # Format comment: "1. 🤖 TIÊU ĐỀ\n\n• bullet\n• bullet\n\n➤ metric"
+            number = i + 1
+            icon = block.get("icon", "")
+            title = block.get("title", "")
+            bullets = block.get("bullets", [])
+            metric = block.get("metric", "")
+
+            lines = [f"{number}. {icon} {title}"]
+            lines.append("")
+            for b in bullets:
+                lines.append(f"• {b}")
+            if metric:
+                lines.append("")
+                lines.append(metric)
+
+            comment_text = "\n".join(lines)
+
+            try:
+                resp = _req.post(url, data={"message": comment_text, "access_token": token}, timeout=15)
+                if resp.status_code in (200, 201):
+                    cmt_id = resp.json().get("id", "?")
+                    logger.info(f"💬 Comment {number}/{n} đăng thành công (ID: {cmt_id})")
+                else:
+                    err = resp.json().get("error", {}).get("message", "?")
+                    logger.warning(f"⚠️ Comment {number}/{n} thất bại: {err}")
+            except Exception as e:
+                logger.warning(f"⚠️ Comment {number}/{n} exception: {e}")
+
+            # Chờ trước comment tiếp theo (trừ comment cuối)
+            if i < n - 1:
+                logger.info(f"⏳ Chờ {interval/60:.1f} phút trước comment {number+1}...")
+                _time.sleep(interval)
+
+        logger.info(f"✅ Comment drip hoàn tất — {n} comments đã đăng")
 
     def _restart_scheduler(self):
         """Restart scheduler if failed"""

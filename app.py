@@ -95,6 +95,13 @@ def review_panel():
         label = "Lần 1 (Unsplash)" if run_id == "run1" else "Lần 2 (Pexels)"
         with st.expander(f"✍️ {label} — Bấm để xem & duyệt bài", expanded=True):
 
+            # Thông báo drip
+            blocks = post.get("blocks", [])
+            if post.get("drip_eligible"):
+                st.info(f"💬 **Comment Drip ON** — {len(blocks)} comments sẽ tự đăng cách nhau {60//len(blocks)} phút sau khi bài lên")
+            else:
+                st.warning(f"ℹ️ {len(blocks)} blocks — Comment drip chỉ chạy với 5 hoặc 7 blocks")
+
             # Hiện nội dung bài
             st.markdown("**📝 Nội dung bài viết:**")
             st.text_area(
