@@ -5,8 +5,42 @@ Tự động chọn: OpenAI nếu có key, ngược lại dùng Ollama
 
 import re
 import json
+import logging
 from langchain_openai import ChatOpenAI
 from config.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _find_balanced_end(text: str, start: int, opener: str, closer: str) -> int:
+    """
+    Walk forward from `start` (which must be the opener character) and return
+    the index of the matching closer, respecting nesting and quoted strings.
+    Returns -1 if no balanced closer is found.
+    """
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == "\"":
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
 
 
 def extract_json(text: str, expect_array: bool = True):
@@ -16,18 +50,23 @@ def extract_json(text: str, expect_array: bool = True):
     Thứ tự thử:
     1. Parse trực tiếp (AI trả đúng JSON)
     2. Tìm trong code block ```json ... ```
-    3. Tìm [...] hoặc {...} đầu tiên trong text (regex)
+    3. Tìm [...] hoặc {...} đầu tiên trong text, dùng bracket-balancing
+       để xác định đúng điểm kết thúc (tránh cắt nhầm ở } nội tuyến)
 
     Returns: list hoặc dict đã parse, hoặc None nếu không tìm được.
     """
     if not text or not text.strip():
+        logger.debug("extract_json: received empty text")
         return None
 
     cleaned = text.strip()
+    logger.debug(f"extract_json: parsing text (len={len(cleaned)}, expect_array={expect_array}): {cleaned[:200]!r}")
 
     # 1. Thử parse trực tiếp
     try:
-        return json.loads(cleaned)
+        result = json.loads(cleaned)
+        logger.debug("extract_json: direct parse succeeded")
+        return result
     except json.JSONDecodeError:
         pass
 
@@ -35,30 +74,35 @@ def extract_json(text: str, expect_array: bool = True):
     block = re.search(r"```(?:json)?\s*([\s\S]*?)```", cleaned)
     if block:
         try:
-            return json.loads(block.group(1).strip())
+            result = json.loads(block.group(1).strip())
+            logger.debug("extract_json: code-block parse succeeded")
+            return result
         except json.JSONDecodeError:
             pass
 
-    # 3. Tìm JSON array [...] hoặc object {...} trong text hỗn hợp
-    #    Lấy đoạn từ [ hoặc { đầu tiên đến ] hoặc } cuối cùng tương ứng
-    if expect_array:
-        start, end, opener, closer = cleaned.find("["), cleaned.rfind("]"), "[", "]"
-    else:
-        start, end, opener, closer = cleaned.find("{"), cleaned.rfind("}"), "{", "}"
+    # 3. Tìm JSON array [...] hoặc object {...} dùng bracket-balancing
+    #    để xử lý đúng các object lồng nhau (nested objects/arrays).
+    primary_opener  = "[" if expect_array else "{"
+    primary_closer  = "]" if expect_array else "}"
+    fallback_opener = "{" if expect_array else "["
+    fallback_closer = "}" if expect_array else "]"
 
-    # Thử cả hai nếu cái kia không tìm thấy
-    if start == -1 or end == -1:
-        alt_start = cleaned.find("{") if expect_array else cleaned.find("[")
-        alt_end = cleaned.rfind("}") if expect_array else cleaned.rfind("]")
-        if alt_start != -1 and alt_end != -1 and alt_start < alt_end:
-            start, end = alt_start, alt_end
-
-    if start != -1 and end != -1 and start < end:
+    for opener, closer in [(primary_opener, primary_closer), (fallback_opener, fallback_closer)]:
+        start = cleaned.find(opener)
+        if start == -1:
+            continue
+        end = _find_balanced_end(cleaned, start, opener, closer)
+        if end == -1:
+            continue
+        candidate = cleaned[start:end + 1]
         try:
-            return json.loads(cleaned[start:end + 1])
-        except json.JSONDecodeError:
-            pass
+            result = json.loads(candidate)
+            logger.debug(f"extract_json: bracket-balanced parse succeeded (opener={opener!r})")
+            return result
+        except json.JSONDecodeError as exc:
+            logger.debug(f"extract_json: bracket-balanced parse failed (opener={opener!r}): {exc}")
 
+    logger.warning(f"extract_json: all strategies failed for text: {cleaned[:300]!r}")
     return None
 
 
