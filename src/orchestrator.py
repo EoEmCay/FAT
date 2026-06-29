@@ -276,6 +276,7 @@ class Orchestrator:
             from src.agents.filter_agent import FilterAgent
             from src.agents.writer_agent import WriterAgent
             from src.agents.designer_agent import DesignerAgent
+            from src.agents.renderer import render_infographic
             from src.agents.seo_agent import SEOAgent
             from src.agents.base import extract_json
 
@@ -306,19 +307,44 @@ class Orchestrator:
                 headline = p.get("headline", p.get("hook", "?"))[:80]
                 logger.info(f"    [{i+1}] {headline}")
 
-            # ── Designer Agent ────────────────────────────────────
+            # ── Designer Agent — chọn màu ─────────────────────────
             t_step = datetime.now(TZ)
             logger.info(f"[{execution_id}] 🎨 Designer Agent running...")
-            design_json = DesignerAgent.run(written)
-            design_configs = extract_json(design_json, expect_array=True) or []
-            img_source = "unsplash" if run_id == "run1" else "pexels"
-            images = asyncio.run(DesignerAgent.download_images(
-                design_configs, source=img_source,
-            )) if design_configs else []
+            design_json     = DesignerAgent.run(written)
+            design_configs  = extract_json(design_json, expect_array=True) or []
+            accent_color    = (design_configs[0].get("accent_color", "clay blue")
+                               if design_configs else "clay blue")
             elapsed = (datetime.now(TZ) - t_step).seconds
-            logger.info(f"[{execution_id}] ✅ Designer xong sau {elapsed}s — {len(images)} ảnh ({img_source})")
-            for img in images[:2]:
-                logger.info(f"    🖼  {str(img.get('url',''))[:80]}")
+            logger.info(f"[{execution_id}] ✅ Designer xong sau {elapsed}s — màu: {accent_color}")
+
+            # ── Parse writer output sớm (cần cho renderer + drip) ─────
+            writer_posts = extract_json(written, expect_array=True) or []
+            best_written = (max(writer_posts, key=lambda p: len(p.get("blocks", [])))
+                            if writer_posts else {})
+            blocks   = best_written.get("blocks", [])
+            headline = best_written.get("headline", "")
+            summary  = best_written.get("summary", "")
+            cta      = best_written.get("cta", "")
+            post_hashtags = best_written.get("hashtags", [])
+            self._pipeline_data[run_id]["blocks"]   = blocks
+            self._pipeline_data[run_id]["headline"] = headline
+            _save_pipeline_cache(self._pipeline_data)
+
+            # ── Render infographic với Pillow ──────────────────────────
+            t_step = datetime.now(TZ)
+            logger.info(f"[{execution_id}] 🖼  Rendering infographic ({accent_color})...")
+            local_path = render_infographic(
+                headline=headline,
+                blocks=blocks,
+                summary=summary,
+                cta=cta,
+                hashtags=post_hashtags,
+                accent_color_name=accent_color,
+            )
+            images = [{"local_path": local_path, "url": None, "image_source": "pillow_render"}] \
+                     if local_path else []
+            elapsed = (datetime.now(TZ) - t_step).seconds
+            logger.info(f"[{execution_id}] ✅ Render xong sau {elapsed}s — {local_path}")
 
             # ── SEO Agent ─────────────────────────────────────────
             t_step = datetime.now(TZ)
@@ -329,15 +355,6 @@ class Orchestrator:
 
             self._pipeline_data[run_id]["optimized"] = optimized
             self._pipeline_data[run_id]["images"] = images
-            _save_pipeline_cache(self._pipeline_data)
-
-            # Parse writer output để lấy blocks cho comment drip
-            writer_posts = extract_json(written, expect_array=True) or []
-            best_written = max(writer_posts, key=lambda p: len(p.get("blocks", []))) if writer_posts else {}
-            blocks = best_written.get("blocks", [])
-            headline = best_written.get("headline", "")
-            self._pipeline_data[run_id]["blocks"] = blocks
-            self._pipeline_data[run_id]["headline"] = headline
             _save_pipeline_cache(self._pipeline_data)
 
             # Parse bài viết để hiển thị preview trên UI
