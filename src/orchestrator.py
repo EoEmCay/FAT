@@ -314,7 +314,6 @@ class Orchestrator:
             img_source = "unsplash" if run_id == "run1" else "pexels"
             images = asyncio.run(DesignerAgent.download_images(
                 design_configs, source=img_source,
-                blocks=blocks, headline=headline,
             )) if design_configs else []
             elapsed = (datetime.now(TZ) - t_step).seconds
             logger.info(f"[{execution_id}] ✅ Designer xong sau {elapsed}s — {len(images)} ảnh ({img_source})")
