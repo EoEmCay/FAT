@@ -333,7 +333,25 @@ class Orchestrator:
 
             # Parse bài viết để hiển thị preview trên UI
             from src.agents.base import extract_json as _ej
+            from src.agents.seo_agent import _assemble_post
             seo_posts = _ej(optimized, expect_array=True) or []
+
+            logger.info(f"[{execution_id}] 🔍 SEO posts count: {len(seo_posts)}, writer posts count: {len(writer_posts)}")
+
+            # Fallback: nếu SEO output rỗng, dùng writer output trực tiếp
+            if not seo_posts and writer_posts:
+                logger.warning(f"[{execution_id}] ⚠️ SEO output rỗng — fallback dùng writer output")
+                for wp in writer_posts:
+                    assembled = _assemble_post(wp)
+                    if assembled:
+                        seo_posts.append({
+                            "article_url": wp.get("article_url", ""),
+                            "optimized_content": assembled,
+                            "hashtags_optimized": wp.get("hashtags", []),
+                            "estimated_reach": 25000,
+                        })
+                logger.info(f"[{execution_id}] ✅ Fallback tạo được {len(seo_posts)} bài từ writer output")
+
             if seo_posts:
                 best = max(seo_posts, key=lambda p: p.get("estimated_reach", 0))
                 n_blocks = len(blocks)
@@ -346,6 +364,7 @@ class Orchestrator:
                     post_content = best.get("optimized_content", "")
 
                 # Giới hạn queue 99 bài
+                logger.info(f"[{execution_id}] 📝 Content preview: {post_content[:100]}")
                 if len(self.post_queue) < 99:
                     self._queue_counter += 1
                     self.post_queue.append({
