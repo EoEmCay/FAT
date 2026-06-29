@@ -181,6 +181,7 @@ class Orchestrator:
     def _execute_scraper(self, run_id: str = "run1"):
         """Execute Scraper Agent — gọi AI thật"""
         execution_id = f"scraper_{run_id}_{datetime.now(TZ).timestamp()}"
+        t0 = datetime.now(TZ)
         try:
             logger.info(f"[{execution_id}] 🔍 Scraper Agent starting ({run_id})...")
             self._log_execution("Scraper", "STARTED", execution_id)
@@ -189,7 +190,13 @@ class Orchestrator:
             result = ScraperAgent.run()
             self._pipeline_data[run_id]["scraper"] = result
 
-            logger.info(f"[{execution_id}] ✅ Scraper completed ({len(result)} chars)")
+            elapsed = (datetime.now(TZ) - t0).seconds
+            # Log tóm tắt nội dung cào được
+            preview_lines = [l.strip() for l in result.split("\n") if l.strip()][:8]
+            logger.info(f"[{execution_id}] ✅ Scraper xong sau {elapsed}s — {len(result)} ký tự")
+            logger.info(f"[{execution_id}] 📰 Nội dung cào được (8 dòng đầu):")
+            for line in preview_lines:
+                logger.info(f"    {line}")
             self._log_execution("Scraper", "COMPLETED", execution_id)
             self.last_execution_time = datetime.now(TZ)
 
@@ -200,6 +207,7 @@ class Orchestrator:
     def _execute_processor(self, run_id: str = "run1"):
         """Execute Filter → Writer → Designer → SEO — gọi AI thật"""
         execution_id = f"processor_{run_id}_{datetime.now(TZ).timestamp()}"
+        t0 = t_step = datetime.now(TZ)
         try:
             logger.info(f"[{execution_id}] ⚙️ Processor Pipeline starting ({run_id})...")
             self._log_execution("Processor", "STARTED", execution_id)
@@ -216,27 +224,52 @@ class Orchestrator:
                 from src.agents.scraper_agent import ScraperAgent
                 raw = ScraperAgent.run()
 
-            logger.info(f"[{execution_id}] Filter Agent running...")
+            # ── Filter Agent ──────────────────────────────────────
+            t_step = datetime.now(TZ)
+            logger.info(f"[{execution_id}] 🔎 Filter Agent running...")
             filtered = FilterAgent.run(raw)
+            filtered_data = extract_json(filtered, expect_array=True) or []
+            elapsed = (datetime.now(TZ) - t_step).seconds
+            logger.info(f"[{execution_id}] ✅ Filter xong sau {elapsed}s — {len(filtered_data)} bài lọc được")
+            for i, a in enumerate(filtered_data[:3]):
+                logger.info(f"    [{i+1}] {a.get('title','?')[:80]} — {a.get('source','?')}")
 
-            logger.info(f"[{execution_id}] Writer Agent running...")
+            # ── Writer Agent ──────────────────────────────────────
+            t_step = datetime.now(TZ)
+            logger.info(f"[{execution_id}] ✍️  Writer Agent running...")
             written = WriterAgent.run(filtered)
+            elapsed = (datetime.now(TZ) - t_step).seconds
+            written_data = extract_json(written, expect_array=True) or []
+            logger.info(f"[{execution_id}] ✅ Writer xong sau {elapsed}s — {len(written_data)} bài viết")
+            for i, p in enumerate(written_data[:2]):
+                headline = p.get("headline", p.get("hook", "?"))[:80]
+                logger.info(f"    [{i+1}] {headline}")
 
-            logger.info(f"[{execution_id}] Designer Agent running...")
+            # ── Designer Agent ────────────────────────────────────
+            t_step = datetime.now(TZ)
+            logger.info(f"[{execution_id}] 🎨 Designer Agent running...")
             design_json = DesignerAgent.run(written)
             design_configs = extract_json(design_json, expect_array=True) or []
-            # run1 → Unsplash, run2 → Pexels (xen kẽ)
             img_source = "unsplash" if run_id == "run1" else "pexels"
             images = asyncio.run(DesignerAgent.download_images(design_configs, source=img_source)) if design_configs else []
+            elapsed = (datetime.now(TZ) - t_step).seconds
+            logger.info(f"[{execution_id}] ✅ Designer xong sau {elapsed}s — {len(images)} ảnh ({img_source})")
+            for img in images[:2]:
+                logger.info(f"    🖼  {str(img.get('url',''))[:80]}")
 
-            logger.info(f"[{execution_id}] SEO Agent running...")
+            # ── SEO Agent ─────────────────────────────────────────
+            t_step = datetime.now(TZ)
+            logger.info(f"[{execution_id}] ⚡ SEO Agent running...")
             optimized = SEOAgent.run(written)
+            elapsed = (datetime.now(TZ) - t_step).seconds
+            logger.info(f"[{execution_id}] ✅ SEO xong sau {elapsed}s")
 
             self._pipeline_data[run_id]["optimized"] = optimized
             self._pipeline_data[run_id]["images"] = images
             _save_pipeline_cache(self._pipeline_data)
 
-            logger.info(f"[{execution_id}] ✅ Processor completed")
+            total = (datetime.now(TZ) - t0).seconds
+            logger.info(f"[{execution_id}] ✅ Processor hoàn tất sau {total}s tổng cộng")
             self._log_execution("Processor", "COMPLETED", execution_id)
             self.last_execution_time = datetime.now(TZ)
 
