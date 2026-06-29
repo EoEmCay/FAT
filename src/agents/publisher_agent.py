@@ -1,6 +1,7 @@
 """
 Agent 6: Publisher Agent
-Validate dữ liệu, chọn bài tốt nhất, và đăng lên Facebook Graph API
+Chọn bài tốt nhất từ SEO output và đăng lên Facebook Graph API.
+Không dùng LLM — Python thuần để tránh AI trả JSON sai format.
 """
 
 import logging
@@ -8,46 +9,10 @@ import json
 import requests
 from datetime import datetime
 from typing import Dict, Any
-from langchain_core.prompts import ChatPromptTemplate
-from src.agents.base import get_llm
+from src.agents.base import extract_json
 from config.config import settings
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = """Bạn là DevOps expert chuyên quản lý API và xuất bản nội dung.
-Luôn trả về JSON hợp lệ, không có text ngoài JSON."""
-
-TASK_PROMPT = """Từ danh sách bài viết đã tối ưu và ảnh dưới đây:
-
-POSTS:
-{optimized_posts}
-
-IMAGES:
-{images}
-
-Thực hiện:
-1. Validate từng bài: trường "optimized_content" không được rỗng, dưới 63206 ký tự
-2. Chọn 1 bài TỐT NHẤT (estimated_reach cao nhất)
-3. Dùng "optimized_content" của bài được chọn làm nội dung đăng (COPY NGUYÊN VĂN, không chỉnh sửa)
-4. Chuẩn bị Facebook API payload
-
-Trả về JSON (chỉ 1 object, không phải array):
-{{
-  "status": "ready_to_publish",
-  "selected_article_url": "url bài được chọn (article_url)",
-  "validation_result": "passed",
-  "facebook_payload": {{
-    "message": "COPY NGUYÊN VĂN optimized_content của bài được chọn",
-    "link": "article_url của bài được chọn",
-    "picture": "url ảnh đầu tiên từ IMAGES nếu có, hoặc null",
-    "name": "Headline ngắn của bài",
-    "description": "Caption 1-2 câu"
-  }},
-  "estimated_reach": 25000,
-  "estimated_engagement": 600
-}}
-
-Chỉ trả về JSON object, KHÔNG có text nào khác."""
 
 
 class PublisherAgent:
@@ -56,32 +21,60 @@ class PublisherAgent:
     @staticmethod
     def run(optimized_posts_json: str, images_json: str) -> str:
         """
-        Chọn bài tốt nhất và chuẩn bị payload.
-        Trả về JSON string của payload.
+        Chọn bài tốt nhất từ SEO Agent output và build Facebook payload.
+        Parse JSON trực tiếp, không qua LLM.
         """
         logger.info("📤 PublisherAgent running...")
 
-        llm = get_llm(use_large=False)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", SYSTEM_PROMPT),
-            ("human", TASK_PROMPT),
-        ])
+        posts = extract_json(optimized_posts_json, expect_array=True)
+        images = extract_json(images_json, expect_array=True) or []
 
-        chain = prompt | llm
-        result = chain.invoke({
-            "optimized_posts": optimized_posts_json,
-            "images": images_json,
-        })
+        if not posts:
+            logger.error("❌ Không parse được SEO output")
+            return json.dumps({"status": "failed", "error": "Cannot parse SEO output"})
 
-        logger.info("✅ PublisherAgent completed")
-        return result.content
+        # Lọc bài có optimized_content
+        valid = [p for p in posts if p.get("optimized_content")]
+        if not valid:
+            logger.error("❌ Không có bài nào có optimized_content")
+            return json.dumps({"status": "failed", "error": "No valid optimized_content"})
+
+        # Chọn bài estimated_reach cao nhất
+        best = max(valid, key=lambda p: p.get("estimated_reach", 0))
+
+        content = best["optimized_content"]
+
+        # Ghép hashtags vào cuối nếu chưa có trong content
+        hashtags = best.get("hashtags_optimized", [])
+        if hashtags and not any(h in content for h in hashtags):
+            content += "\n\n" + " ".join(hashtags)
+
+        # Lấy ảnh đầu tiên nếu có
+        picture = None
+        if images and isinstance(images[0], dict):
+            picture = images[0].get("url") or images[0].get("local_path")
+
+        payload = {
+            "status": "ready_to_publish",
+            "selected_article_url": best.get("article_url", ""),
+            "validation_result": "passed",
+            "facebook_payload": {
+                "message": content[:63000],
+                "link": best.get("article_url") or "",
+                "picture": picture,
+                "name": content.split("\n")[0][:100],
+                "description": content[:200],
+            },
+            "estimated_reach": best.get("estimated_reach", 0),
+            "estimated_engagement": int(best.get("estimated_reach", 0) * 0.025),
+        }
+
+        logger.info("✅ PublisherAgent: payload built successfully")
+        return json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
     async def publish_to_facebook(payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Gọi Facebook Graph API để đăng bài.
-        payload: dict chứa message, link, picture, name, description
-        """
+        """Gọi Facebook Graph API để đăng bài."""
         if "test" in settings.facebook_access_token or len(settings.facebook_access_token) < 30:
             logger.warning("⚠️  Facebook token là test token, bỏ qua gọi API thật")
             return {
@@ -99,8 +92,6 @@ class PublisherAgent:
                 f"{settings.facebook_page_id}/feed"
             )
             headers = {"Authorization": f"Bearer {settings.facebook_access_token}"}
-
-            # Chỉ gửi field nào có giá trị
             clean_payload = {k: v for k, v in payload.items() if v}
 
             resp = requests.post(url, json=clean_payload, headers=headers, timeout=30)
