@@ -122,20 +122,30 @@ def review_panel():
                             st.markdown("")
 
             with col_img:
-                # Hiện ảnh AI tìm được
                 local_path = post.get("image_local")
-                image_url = post.get("image_url")
+                image_url  = post.get("image_url")
 
                 if local_path and os.path.exists(local_path):
-                    st.markdown(f"**🖼 Ảnh AI (lưu trong AIimg/):**")
+                    st.markdown("**🖼 Ảnh AI (tự dùng khi đăng):**")
                     st.image(local_path, use_container_width=True)
+                    # Nút tải ảnh về máy
+                    with open(local_path, "rb") as f:
+                        st.download_button(
+                            "📥 Tải ảnh về máy (AIimg/)",
+                            data=f.read(),
+                            file_name=os.path.basename(local_path),
+                            mime="image/jpeg",
+                            key=f"dl_{q_num}",
+                            use_container_width=True,
+                        )
                 elif image_url:
-                    st.markdown("**🖼 Ảnh AI:**")
+                    st.markdown("**🖼 Ảnh AI (tự dùng khi đăng):**")
                     st.image(image_url, use_container_width=True)
                 else:
-                    st.caption("Chưa có ảnh AI")
+                    st.caption("⚠️ Chưa có ảnh AI")
 
-                st.markdown("**📤 Upload ảnh của bạn (ghi đè ảnh AI):**")
+                st.markdown("**📤 Thay ảnh khác (tuỳ chọn):**")
+                st.caption("Để trống → tự dùng ảnh AI ở trên")
                 uploaded = st.file_uploader("JPG/PNG", type=["jpg","jpeg","png","webp"],
                                             key=f"upload_{q_num}")
 

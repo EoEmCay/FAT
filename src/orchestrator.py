@@ -85,16 +85,23 @@ class Orchestrator:
 
         def _publish():
             if image_bytes:
+                # User upload ảnh riêng → ghi đè ảnh AI
                 import tempfile
                 ext = (image_name or "image.jpg").rsplit(".", 1)[-1]
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
                 tmp.write(image_bytes)
                 tmp.close()
                 self._pipeline_data[run_id]["images"] = [{"local_path": tmp.name, "url": None}]
-                _save_pipeline_cache(self._pipeline_data)
-                logger.info(f"📸 Ảnh upload lưu: {tmp.name}")
+                logger.info(f"📸 Dùng ảnh user upload: {tmp.name}")
+            else:
+                # Tự động dùng ảnh AI đã lưu trong AIimg/
+                ai_local = post.get("image_local")
+                ai_url   = post.get("image_url")
+                if ai_local or ai_url:
+                    self._pipeline_data[run_id]["images"] = [{"local_path": ai_local, "url": ai_url}]
+                    logger.info(f"📸 Tự dùng ảnh AI: {ai_local or ai_url}")
+            _save_pipeline_cache(self._pipeline_data)
             self._execute_publisher(run_id)
-            # Xóa khỏi queue sau khi đăng xong
             if post in self.post_queue:
                 self.post_queue.remove(post)
 
