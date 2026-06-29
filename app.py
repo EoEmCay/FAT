@@ -65,6 +65,17 @@ with col3:
     if st.button("🔄 REFRESH NOW", use_container_width=True):
         st.rerun()
 
+st.markdown("")
+col_run1, col_run2 = st.columns(2)
+with col_run1:
+    if st.button("⚡ RUN PIPELINE NOW (Lần 1)", use_container_width=True):
+        orchestrator.run_now("run1")
+        st.success("✅ Pipeline run1 đang chạy — xem log bên dưới")
+with col_run2:
+    if st.button("⚡ RUN PIPELINE NOW (Lần 2)", use_container_width=True):
+        orchestrator.run_now("run2")
+        st.success("✅ Pipeline run2 đang chạy — xem log bên dưới")
+
 st.markdown("---")
 
 # ── LIVE MONITOR (tự refresh mỗi 5 giây) ──────────────────────

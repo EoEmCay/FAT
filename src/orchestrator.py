@@ -6,6 +6,7 @@ Runs on APScheduler with timezone support
 import logging
 import json
 import os
+import threading
 from datetime import datetime
 from typing import Optional, Dict, Any
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -58,6 +59,19 @@ class Orchestrator:
         self._pipeline_data: Dict[str, Any] = _load_pipeline_cache()
         # Lưu lịch sử các bài đã đăng thành công
         self.published_posts: list = []
+
+    def run_now(self, run_id: str = "run1"):
+        """Chạy toàn bộ pipeline ngay lập tức trong background thread."""
+        def _run():
+            logger.info(f"🚀 RUN NOW triggered ({run_id})")
+            self._execute_scraper(run_id)
+            self._execute_processor(run_id)
+            self._execute_publisher(run_id)
+            logger.info(f"🏁 RUN NOW hoàn tất ({run_id})")
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        return {"status": "started", "run_id": run_id}
 
     def start_system(self) -> Dict[str, Any]:
         """
