@@ -26,8 +26,13 @@ class PublisherAgent:
         """
         logger.info("📤 PublisherAgent running...")
 
+        logger.info(f"[PublisherAgent] extract_json() input optimized_posts_json (first 500 chars): {optimized_posts_json[:500]!r}")
         posts = extract_json(optimized_posts_json, expect_array=True)
+        logger.info(f"[PublisherAgent] parsed posts list length: {len(posts) if posts else 0}, first item: {posts[0] if posts else None!r}")
+
+        logger.info(f"[PublisherAgent] extract_json() input images_json: {images_json!r}")
         images = extract_json(images_json, expect_array=True) or []
+        logger.info(f"[PublisherAgent] parsed images list length: {len(images)}")
 
         if not posts:
             logger.error("❌ Không parse được SEO output")
@@ -69,6 +74,7 @@ class PublisherAgent:
             "estimated_engagement": int(best.get("estimated_reach", 0) * 0.025),
         }
 
+        logger.info(f"[PublisherAgent] final payload dict before serialization: {payload!r}")
         logger.info("✅ PublisherAgent: payload built successfully")
         return json.dumps(payload, ensure_ascii=False)
 

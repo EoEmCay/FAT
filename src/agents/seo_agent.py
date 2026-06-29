@@ -72,4 +72,6 @@ class SEOAgent:
         result = chain.invoke({"posts": posts_json})
 
         logger.info("✅ SEOAgent completed")
+        logger.info(f"[SEOAgent] Raw LLM result.content (first 500 chars): {result.content[:500]!r}")
+        logger.info(f"[SEOAgent] Total result.content length: {len(result.content)} chars")
         return result.content
