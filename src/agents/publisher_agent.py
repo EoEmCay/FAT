@@ -91,10 +91,11 @@ class PublisherAgent:
                 f"{settings.facebook_api_version}/"
                 f"{settings.facebook_page_id}/feed"
             )
-            headers = {"Authorization": f"Bearer {settings.facebook_access_token}"}
-            clean_payload = {k: v for k, v in payload.items() if v}
+            # Dùng access_token trong body + form-encoded (cách duy nhất đã test thành công)
+            post_data = {k: v for k, v in payload.items() if v}
+            post_data["access_token"] = settings.facebook_access_token
 
-            resp = requests.post(url, json=clean_payload, headers=headers, timeout=30)
+            resp = requests.post(url, data=post_data, timeout=30)
 
             if resp.status_code in (200, 201):
                 post_id = resp.json().get("id")

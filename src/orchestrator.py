@@ -292,15 +292,23 @@ class Orchestrator:
             elif status == "skipped":
                 logger.warning(f"[{execution_id}] ⚠️ Bỏ qua: {result.get('reason')}")
             elif status == "failed":
-                logger.error(f"[{execution_id}] ❌ Facebook API từ chối: {result.get('error')} | HTTP {result.get('http_status')}")
+                err_msg = f"Facebook từ chối: {result.get('error')} | HTTP {result.get('http_status')}"
+                logger.error(f"[{execution_id}] ❌ {err_msg}")
+                self._log_execution("Publisher", "FAILED", execution_id, err_msg)
             else:
-                logger.error(f"[{execution_id}] ❌ Lỗi không xác định: {result}")
+                err_msg = f"Lỗi không xác định: {result}"
+                logger.error(f"[{execution_id}] ❌ {err_msg}")
+                self._log_execution("Publisher", "FAILED", execution_id, err_msg)
 
             # Reset data sau khi đăng xong
             self._pipeline_data[run_id] = {}
             _save_pipeline_cache(self._pipeline_data)
 
-            self._log_execution("Publisher", status.upper(), execution_id)
+            if status == "published":
+                self._log_execution("Publisher", "PUBLISHED", execution_id)
+            elif status == "skipped":
+                self._log_execution("Publisher", "SKIPPED", execution_id)
+
             self.last_execution_time = datetime.now(TZ)
 
         except Exception as e:
