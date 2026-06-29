@@ -26,25 +26,22 @@ IMAGES:
 {images}
 
 Thực hiện:
-1. Validate từng bài:
-   - Content dưới 63206 ký tự
-   - Có đầy đủ hook, body, cta
-   - Hashtags không quá 15 cái
-2. Chọn 1 bài TỐT NHẤT (estimated_reach cao nhất, content quality tốt nhất)
-3. Ghép content hoàn chỉnh: hook + body + cta + hashtags
+1. Validate từng bài: trường "optimized_content" không được rỗng, dưới 63206 ký tự
+2. Chọn 1 bài TỐT NHẤT (estimated_reach cao nhất)
+3. Dùng "optimized_content" của bài được chọn làm nội dung đăng (COPY NGUYÊN VĂN, không chỉnh sửa)
 4. Chuẩn bị Facebook API payload
 
 Trả về JSON (chỉ 1 object, không phải array):
 {{
   "status": "ready_to_publish",
-  "selected_article_url": "url bài được chọn",
+  "selected_article_url": "url bài được chọn (article_url)",
   "validation_result": "passed",
   "facebook_payload": {{
-    "message": "Toàn bộ nội dung bài (hook + body + cta + hashtags)",
-    "link": "url bài gốc",
-    "picture": "url ảnh hoặc null",
-    "name": "Tiêu đề ngắn",
-    "description": "Mô tả 1 câu"
+    "message": "COPY NGUYÊN VĂN optimized_content của bài được chọn",
+    "link": "article_url của bài được chọn",
+    "picture": "url ảnh đầu tiên từ IMAGES nếu có, hoặc null",
+    "name": "Headline ngắn của bài",
+    "description": "Caption 1-2 câu"
   }},
   "estimated_reach": 25000,
   "estimated_engagement": 600
