@@ -443,6 +443,7 @@ class Orchestrator:
                 return
 
             payload_json = PublisherAgent.run(optimized, json.dumps(images))
+            logger.debug(f"[{execution_id}] 🔍 Raw PublisherAgent output: {payload_json!r}")
             payload_data = extract_json(payload_json, expect_array=False) or {}
 
             if not payload_data or "facebook_payload" not in payload_data:

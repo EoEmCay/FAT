@@ -61,6 +61,7 @@ class PublisherAgent:
             "estimated_engagement": int(best.get("estimated_reach", 0) * 0.025),
         }
 
+        logger.debug(f"📦 PublisherAgent payload dict: {json.dumps(payload, ensure_ascii=False, indent=2)}")
         logger.info("✅ PublisherAgent: payload built successfully")
         return json.dumps(payload, ensure_ascii=False)
 
